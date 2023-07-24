@@ -2004,7 +2004,7 @@ class runner {
       std::for_each(test.tag.cbegin(), test.tag.cend(), [](const auto& tag) {
         std::cout << "tag: " << tag << std::endl;
       });
-      co_return {};
+      co_return;
     }
 
     auto execute = std::empty(test.tag);
@@ -2012,7 +2012,7 @@ class runner {
       if (utility::is_match(tag_element, "skip") && !detail::cfg::show_tests &&
           !detail::cfg::show_test_names) {
         on(events::skip<>{.type = test.type, .name = test.name});
-        co_return {};
+        co_return;
       }
 
       for (const auto& ftag : tag_) {
@@ -2041,12 +2041,12 @@ class runner {
         std::cout << "matching test: ";
       }
       std::cout << test.name << std::endl;
-      co_return {};
+      co_return;
     }
 
     if (not execute) {
       on(events::skip<>{.type = test.type, .name = test.name});
-      co_return {};
+      co_return;
     }
 
     if (filter_(level_, path_)) {
@@ -2092,7 +2092,7 @@ class runner {
       }
     }
 
-    co_return {};
+    co_return ;
   }
 
   template <class... Ts>
