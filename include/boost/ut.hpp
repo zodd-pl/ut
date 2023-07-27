@@ -2232,9 +2232,17 @@ struct test {
     return _test.test;
   }
 
+
+  template<class, class = void>
+  struct has_promise_type : std::false_type {};
+  
+  template<class T>
+  struct has_promise_type<T, std::void_t<typename T::promise_type>> : std::true_type {};
+
   template <class Test,
             type_traits::requires_t<
-                not type_traits::is_convertible_v<Test, void (*)()>> = 0>
+                not type_traits::is_convertible_v<Test, void (*)()>
+                and not has_promise_type<std::invoke_result_t<Test>>{}> = 0>
   constexpr auto operator=(Test _test) ->
       typename type_traits::identity<Test, decltype(_test())>::type {
     on<Test>(events::test<Test>{.type = type,
@@ -2248,9 +2256,10 @@ struct test {
 
   template <class Test,
             type_traits::requires_t<
-                not type_traits::is_convertible_v<Test, void (*)()>> = 0>
+                not type_traits::is_convertible_v<Test, void (*)()>
+                and has_promise_type<std::invoke_result_t<Test>>{}> = 0>
   constexpr auto operator=(Test _test) ->
-      typename type_traits::identity<decltype(_test()), decltype(_test())>::type {
+      typename type_traits::identity<decltype(_test())>::type {
     return on<Test>(events::test<Test>{.type = type,
                                 .name = name,
                                 .tag = tag,
@@ -2258,7 +2267,6 @@ struct test {
                                 .arg = none{},
                                 .run = static_cast<Test&&>(_test)});
   }
-
 
   constexpr auto operator=(void (*_test)(std::string_view)) const {
     return _test(name);
