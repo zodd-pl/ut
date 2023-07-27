@@ -1593,10 +1593,12 @@ class reporter_junit {
   std::ostream lcout_;
   TPrinter printer_;
   std::stringstream ss_out_{};
+  bool log_used {false};
 
   void reset_printer() {
     ss_out_.str("");
     ss_out_.clear();
+    log_used = false;
   }
 
   void check_for_scope(std::string_view test_name) {
@@ -1718,9 +1720,9 @@ class reporter_junit {
             ss_out_ << std::string(2 * active_test_.size() - 2, ' ');
             ss_out_ << "Running test \"" << test_event.name << "\" - ";
           }
-          ss_out_ << color_.pass << "PASSED" << color_.none;
+          ss_out_ << color_.pass << "PASSED" << color_.none ;
           print_duration(ss_out_);
-          lcout_ << ss_out_.str() << std::endl;
+          lcout_ << ss_out_.str();
           reset_printer();
         }
       }
@@ -1755,8 +1757,13 @@ class reporter_junit {
 
   template <class TMsg>
   auto on(events::log<TMsg> log) -> void {
+    if ( !log_used )
+    {
+      ss_out_ << "\n";
+      log_used = true;
+    }
     ss_out_ << log.msg;
-    if (report_type_ == CONSOLE) {
+    if (report_type_ == CONSOLE and not detail::cfg::show_successful_tests) {
       lcout_ << log.msg;
     }
   }
