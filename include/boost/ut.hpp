@@ -584,11 +584,14 @@ struct test {
   TArg arg{};
   Test run{};
 
-  constexpr auto operator()() { run_impl(static_cast<Test&&>(run), arg); }
-  constexpr auto operator()() const { run_impl(static_cast<Test&&>(run), arg); }
+  constexpr auto operator()() { return run_impl(static_cast<Test&&>(run), arg); }
+  constexpr auto operator()() const { return run_impl(static_cast<Test&&>(run), arg); }
 
  private:
-  static constexpr auto run_impl(Test test, const none&) { test(); }
+  static constexpr auto run_impl(Test test, const none&) 
+  {
+    return test(); 
+  }
 
   template <class T>
   static constexpr auto run_impl(T test, const TArg& arg)
@@ -1590,10 +1593,12 @@ class reporter_junit {
   std::ostream lcout_;
   TPrinter printer_;
   std::stringstream ss_out_{};
+  bool log_used {false};
 
   void reset_printer() {
     ss_out_.str("");
     ss_out_.clear();
+    log_used = false;
   }
 
   void check_for_scope(std::string_view test_name) {
@@ -1715,7 +1720,7 @@ class reporter_junit {
             ss_out_ << std::string(2 * active_test_.size() - 2, ' ');
             ss_out_ << "Running test \"" << test_event.name << "\" - ";
           }
-          ss_out_ << color_.pass << "PASSED" << color_.none;
+          ss_out_ << color_.pass << "PASSED" << color_.none ;
           print_duration(ss_out_);
           lcout_ << ss_out_.str();
           reset_printer();
@@ -1752,8 +1757,13 @@ class reporter_junit {
 
   template <class TMsg>
   auto on(events::log<TMsg> log) -> void {
+    if ( !log_used )
+    {
+      ss_out_ << "\n";
+      log_used = true;
+    }
     ss_out_ << log.msg;
-    if (report_type_ == CONSOLE) {
+    if (report_type_ == CONSOLE and not detail::cfg::show_successful_tests) {
       lcout_ << log.msg;
     }
   }
@@ -1994,14 +2004,14 @@ class runner {
   }
 
   template <class... Ts>
-  auto on(events::test<Ts...> test) {
+  auto on(events::test<Ts...> test) -> decltype(test()) {
     path_[level_] = test.name;
 
     if (detail::cfg::list_tags) {
       std::for_each(test.tag.cbegin(), test.tag.cend(), [](const auto& tag) {
         std::cout << "tag: " << tag << std::endl;
       });
-      return;
+      co_return;
     }
 
     auto execute = std::empty(test.tag);
@@ -2009,7 +2019,7 @@ class runner {
       if (utility::is_match(tag_element, "skip") && !detail::cfg::show_tests &&
           !detail::cfg::show_test_names) {
         on(events::skip<>{.type = test.type, .name = test.name});
-        return;
+        co_return;
       }
 
       for (const auto& ftag : tag_) {
@@ -2038,12 +2048,12 @@ class runner {
         std::cout << "matching test: ";
       }
       std::cout << test.name << std::endl;
-      return;
+      co_return;
     }
 
     if (not execute) {
       on(events::skip<>{.type = test.type, .name = test.name});
-      return;
+      co_return;
     }
 
     if (filter_(level_, path_)) {
@@ -2064,7 +2074,7 @@ class runner {
 #if defined(__cpp_exceptions)
       try {
 #endif
-        test();
+        co_await test();
 #if defined(__cpp_exceptions)
       } catch (const events::fatal_assertion&) {
       } catch (const std::exception& exception) {
@@ -2088,6 +2098,8 @@ class runner {
         }
       }
     }
+
+    co_return ;
   }
 
   template <class... Ts>
@@ -2224,14 +2236,14 @@ struct test {
             type_traits::requires_t<
                 not type_traits::is_convertible_v<Test, void (*)()>> = 0>
   constexpr auto operator=(Test _test) ->
-      typename type_traits::identity<Test, decltype(_test())>::type {
-    on<Test>(events::test<Test>{.type = type,
+      typename type_traits::identity<decltype(_test()), decltype(_test())>::type {
+    return on<Test>(events::test<Test>{.type = type,
                                 .name = name,
                                 .tag = tag,
                                 .location = {},
                                 .arg = none{},
                                 .run = static_cast<Test&&>(_test)});
-    return _test;
+    // return _test;
   }
 
   constexpr auto operator=(void (*_test)(std::string_view)) const {
