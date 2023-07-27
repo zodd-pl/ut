@@ -2236,6 +2236,20 @@ struct test {
             type_traits::requires_t<
                 not type_traits::is_convertible_v<Test, void (*)()>> = 0>
   constexpr auto operator=(Test _test) ->
+      typename type_traits::identity<Test, decltype(_test())>::type {
+    on<Test>(events::test<Test>{.type = type,
+                                .name = name,
+                                .tag = tag,
+                                .location = {},
+                                .arg = none{},
+                                .run = static_cast<Test&&>(_test)});
+    return _test;
+  }
+
+  template <class Test,
+            type_traits::requires_t<
+                not type_traits::is_convertible_v<Test, void (*)()>> = 0>
+  constexpr auto operator=(Test _test) ->
       typename type_traits::identity<decltype(_test()), decltype(_test())>::type {
     return on<Test>(events::test<Test>{.type = type,
                                 .name = name,
@@ -2243,8 +2257,8 @@ struct test {
                                 .location = {},
                                 .arg = none{},
                                 .run = static_cast<Test&&>(_test)});
-    // return _test;
   }
+
 
   constexpr auto operator=(void (*_test)(std::string_view)) const {
     return _test(name);
