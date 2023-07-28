@@ -1935,6 +1935,14 @@ class reporter_junit {
   }
 };
 
+
+template<class, class = void>
+struct has_promise_type : std::false_type {};
+
+template<class T>
+struct has_promise_type<T, std::void_t<typename T::promise_type>> : std::true_type {};
+
+
 struct options {
   std::string_view filter{};
   std::vector<std::string_view> tag{};
@@ -2004,14 +2012,14 @@ class runner {
   }
 
   template <class... Ts>
-  auto on(events::test<Ts...> test) -> decltype(test()) {
+  bool on_enter(events::test<Ts...> & test)  {
     path_[level_] = test.name;
 
     if (detail::cfg::list_tags) {
       std::for_each(test.tag.cbegin(), test.tag.cend(), [](const auto& tag) {
         std::cout << "tag: " << tag << std::endl;
       });
-      co_return;
+      return false;
     }
 
     auto execute = std::empty(test.tag);
@@ -2019,13 +2027,13 @@ class runner {
       if (utility::is_match(tag_element, "skip") && !detail::cfg::show_tests &&
           !detail::cfg::show_test_names) {
         on(events::skip<>{.type = test.type, .name = test.name});
-        co_return;
+        return false;
       }
 
       for (const auto& ftag : tag_) {
         if (utility::is_match(tag_element, ftag)) {
           execute = true;
-          break;
+          break ;
         }
       }
     }
@@ -2048,59 +2056,125 @@ class runner {
         std::cout << "matching test: ";
       }
       std::cout << test.name << std::endl;
-      co_return;
+      return false;
     }
 
     if (not execute) {
       on(events::skip<>{.type = test.type, .name = test.name});
-      co_return;
+      return false;
     }
 
-    if (filter_(level_, path_)) {
-      if (not level_++) {
-        reporter_.on(events::test_begin{
-            .type = test.type, .name = test.name, .location = test.location});
-      } else {
-        reporter_.on(events::test_run{.type = test.type, .name = test.name});
-      }
+    return true; 
+  }
 
-      if (dry_run_) {
-        for (auto i = 0u; i < level_; ++i) {
-          std::cout << (i ? "." : "") << path_[i];
-        }
-        std::cout << '\n';
-      }
-
-#if defined(__cpp_exceptions)
-      try {
-#endif
-        co_await test();
-#if defined(__cpp_exceptions)
-      } catch (const events::fatal_assertion&) {
-      } catch (const std::exception& exception) {
-        ++fails_;
-        reporter_.on(events::exception{exception.what()});
-      } catch (...) {
-        ++fails_;
-        reporter_.on(events::exception{"Unknown exception"});
-      }
-#endif
-
-      if (not --level_) {
-        reporter_.on(events::test_end{.type = test.type, .name = test.name});
-      } else {  // N.B. prev. only root-level tests were signalled on finish
-        if constexpr (requires {
-                        reporter_.on(events::test_finish{.type = test.type,
-                                                         .name = test.name});
-                      }) {
-          reporter_.on(
-              events::test_finish{.type = test.type, .name = test.name});
-        }
-      }
+  template <class... Ts>
+  bool on_filter(events::test<Ts...> & test)  {
+    if ( not filter_(level_, path_)) {
+      return false;
     }
 
+    if (not level_++) {
+      reporter_.on(events::test_begin{
+          .type = test.type, .name = test.name, .location = test.location});
+    } else {
+      reporter_.on(events::test_run{.type = test.type, .name = test.name});
+    }
+
+    if (dry_run_) {
+      for (auto i = 0u; i < level_; ++i) {
+        std::cout << (i ? "." : "") << path_[i];
+      }
+      std::cout << '\n';
+    }  
+
+    return true;
+  }
+
+#if defined(__cpp_exceptions)
+  template <class... Ts>
+  void on_exit(events::test<Ts...> & test, std::exception_ptr eptr) 
+#else
+  template <class... Ts>
+  void on_exit(events::test<Ts...> & test)  
+#endif
+  {
+
+#if defined(__cpp_exceptions)
+    try
+    {
+      if (eptr)
+         std::rethrow_exception(eptr);
+    } catch (const events::fatal_assertion&) {
+    } catch (const std::exception& exception) {
+      ++fails_;
+      reporter_.on(events::exception{exception.what()});
+    } catch (...) {
+      ++fails_;
+      reporter_.on(events::exception{"Unknown exception"});
+    }
+#endif
+
+    if (not --level_) {
+      reporter_.on(events::test_end{.type = test.type, .name = test.name});
+    } else {  // N.B. prev. only root-level tests were signalled on finish
+      if constexpr (requires {
+                      reporter_.on(events::test_finish{.type = test.type,
+                                                        .name = test.name});
+                    }) {
+        reporter_.on(
+            events::test_finish{.type = test.type, .name = test.name});
+      }
+    }
+  }
+
+
+  template <class... Ts,
+    type_traits::requires_t< not has_promise_type<std::invoke_result_t<events::test<Ts...>>>{}> = 0>
+  auto on(events::test<Ts...> test) {
+    
+    bool continue_ = on_enter(test);
+    continue_ = continue_ && on_filter(test);
+
+#if defined(__cpp_exceptions)
+    try {
+#endif
+      test();
+#if defined(__cpp_exceptions)
+    }
+    catch(...)
+    {
+      on_exit(test,std::current_exception());
+    }
+#else 
+    on_exit(test);
+#endif
+    return;
+  }
+
+  template <class... Ts,
+    type_traits::requires_t< has_promise_type<std::invoke_result_t<events::test<Ts...>>>{}> = 0>
+  auto on(events::test<Ts...> test) -> decltype(test()) {
+    
+    bool continue_ = on_enter(test);
+    continue_ = continue_ && on_filter(test);
+
+#if defined(__cpp_exceptions)
+    try {
+#endif
+      co_await test();
+#if defined(__cpp_exceptions)
+    }
+    catch(...)
+    {
+      on_exit(test,std::current_exception());
+    }
+#else 
+    on_exit(test);
+#endif
     co_return ;
   }
+
+
 
   template <class... Ts>
   auto on(events::skip<Ts...> test) {
@@ -2232,12 +2306,6 @@ struct test {
     return _test.test;
   }
 
-
-  template<class, class = void>
-  struct has_promise_type : std::false_type {};
-  
-  template<class T>
-  struct has_promise_type<T, std::void_t<typename T::promise_type>> : std::true_type {};
 
   template <class Test,
             type_traits::requires_t<
