@@ -2135,6 +2135,11 @@ class runner {
     bool continue_ = on_enter(test);
     continue_ = continue_ && on_filter(test);
 
+    if ( not continue_)
+    {
+      return;
+    }
+
 #if defined(__cpp_exceptions)
     try {
 #endif
@@ -2157,6 +2162,11 @@ class runner {
     
     bool continue_ = on_enter(test);
     continue_ = continue_ && on_filter(test);
+
+    if ( not continue_)
+    {
+      co_return;
+    }
 
 #if defined(__cpp_exceptions)
     try {
