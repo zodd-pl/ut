@@ -1942,6 +1942,9 @@ struct has_promise_type : std::false_type {};
 template<class T>
 struct has_promise_type<T, std::void_t<typename T::promise_type>> : std::true_type {};
 
+template<typename T>
+inline constexpr  bool is_coro = requires ( T t) { operator co_await(t);};
+
 
 struct options {
   std::string_view filter{};
@@ -2092,14 +2095,8 @@ class runner {
 
 #if defined(__cpp_exceptions)
   template <class... Ts>
-  void on_exit(events::test<Ts...> & test, std::exception_ptr eptr) 
-#else
-  template <class... Ts>
-  void on_exit(events::test<Ts...> & test)  
-#endif
+  void on_catch(events::test<Ts...> & , std::exception_ptr eptr)
   {
-
-#if defined(__cpp_exceptions)
     try
     {
       if (eptr)
@@ -2112,8 +2109,12 @@ class runner {
       ++fails_;
       reporter_.on(events::exception{"Unknown exception"});
     }
+  }
 #endif
 
+  template <class... Ts>
+  void on_exit(events::test<Ts...> & test)  
+  {
     if (not --level_) {
       reporter_.on(events::test_end{.type = test.type, .name = test.name});
     } else {  // N.B. prev. only root-level tests were signalled on finish
@@ -2127,7 +2128,6 @@ class runner {
     }
   }
 
-
   template <class... Ts,
     type_traits::requires_t< not has_promise_type<std::invoke_result_t<events::test<Ts...>>>{}> = 0>
   auto on(events::test<Ts...> test) {
@@ -2135,8 +2135,7 @@ class runner {
     bool continue_ = on_enter(test);
     continue_ = continue_ && on_filter(test);
 
-    if ( not continue_)
-    {
+    if ( not continue_) {
       return;
     }
 
@@ -2148,11 +2147,10 @@ class runner {
     }
     catch(...)
     {
-      on_exit(test,std::current_exception());
+      on_catch(test,std::current_exception());
     }
-#else 
-    on_exit(test);
 #endif
+    on_exit(test);
     return;
   }
 
@@ -2163,8 +2161,7 @@ class runner {
     bool continue_ = on_enter(test);
     continue_ = continue_ && on_filter(test);
 
-    if ( not continue_)
-    {
+    if ( not continue_) {
       co_return;
     }
 
@@ -2176,15 +2173,12 @@ class runner {
     }
     catch(...)
     {
-      on_exit(test,std::current_exception());
+      on_catch(test,std::current_exception());
     }
-#else 
-    on_exit(test);
 #endif
-    co_return ;
+    on_exit(test);
+    co_return;
   }
-
-
 
   template <class... Ts>
   auto on(events::skip<Ts...> test) {
