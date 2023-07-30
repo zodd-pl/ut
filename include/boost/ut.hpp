@@ -2070,31 +2070,28 @@ class runner {
 
   template <class... Ts>
   bool on_filter(events::test<Ts...> & test)  {
-    if ( not filter_(level_, path_)) {
-      return false;
-    }
-
-    if (not level_++) {
-      reporter_.on(events::test_begin{
-          .type = test.type, .name = test.name, .location = test.location});
-    } else {
-      reporter_.on(events::test_run{.type = test.type, .name = test.name});
-    }
-
-    if (dry_run_) {
-      for (auto i = 0u; i < level_; ++i) {
-        std::cout << (i ? "." : "") << path_[i];
+    if ( filter_(level_, path_)) {
+      if (not level_++) {
+        reporter_.on(events::test_begin{
+            .type = test.type, .name = test.name, .location = test.location});
+      } else {
+        reporter_.on(events::test_run{.type = test.type, .name = test.name});
       }
-      std::cout << '\n';
-    }  
 
-    return true;
+      if (dry_run_) {
+        for (auto i = 0u; i < level_; ++i) {
+          std::cout << (i ? "." : "") << path_[i];
+        }
+        std::cout << '\n';
+      }
+      return true;
+    }
+    return false;
   }
 
 #if defined(__cpp_exceptions)
   template <class... Ts>
-  void on_catch(events::test<Ts...> & , std::exception_ptr eptr)
-  {
+  void on_catch(events::test<Ts...> & , std::exception_ptr eptr)  {
     try
     {
       if (eptr)
