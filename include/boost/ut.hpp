@@ -521,6 +521,14 @@ struct requires_<true> {
 
 template <bool Cond>
 using requires_t = typename requires_<Cond>::type;
+
+template<typename T>
+inline constexpr bool is_awaitable_v = 
+  is_valid<T>([](auto t) -> decltype(t.operator co_await(), void()) {})
+  or is_valid<T>([](auto t) -> decltype(operator co_await(t), void()) {});
+  // or is_awaiter_v<T>
+
+
 }  // namespace type_traits
 
 template <typename CharT, std::size_t SIZE>
@@ -1936,16 +1944,6 @@ class reporter_junit {
 };
 
 
-template<class, class = void>
-struct has_promise_type : std::false_type {};
-
-template<class T>
-struct has_promise_type<T, std::void_t<typename T::promise_type>> : std::true_type {};
-
-template<typename T>
-inline constexpr  bool is_coro = requires ( T t) { operator co_await(t);};
-
-
 struct options {
   std::string_view filter{};
   std::vector<std::string_view> tag{};
@@ -2129,7 +2127,7 @@ class runner {
   }
 
   template <class... Ts,
-    type_traits::requires_t< not has_promise_type<std::invoke_result_t<events::test<Ts...>>>{}> = 0>
+    type_traits::requires_t< not type_traits::is_awaitable_v<std::invoke_result_t<events::test<Ts...>>>> = 0>
   auto on(events::test<Ts...> test) {
     
     bool continue_ = on_enter(test);
@@ -2155,7 +2153,7 @@ class runner {
   }
 
   template <class... Ts,
-    type_traits::requires_t< has_promise_type<std::invoke_result_t<events::test<Ts...>>>{}> = 0>
+    type_traits::requires_t< type_traits::is_awaitable_v<std::invoke_result_t<events::test<Ts...>>>> = 0>
   auto on(events::test<Ts...> test) -> decltype(test()) {
     
     bool continue_ = on_enter(test);
@@ -2314,7 +2312,7 @@ struct test {
   template <class Test,
             type_traits::requires_t<
                 not type_traits::is_convertible_v<Test, void (*)()>
-                and not has_promise_type<std::invoke_result_t<Test>>{}> = 0>
+                and not type_traits::is_awaitable_v<std::invoke_result_t<Test>> > = 0>                
   constexpr auto operator=(Test _test) ->
       typename type_traits::identity<Test, decltype(_test())>::type {
     on<Test>(events::test<Test>{.type = type,
@@ -2329,7 +2327,7 @@ struct test {
   template <class Test,
             type_traits::requires_t<
                 not type_traits::is_convertible_v<Test, void (*)()>
-                and has_promise_type<std::invoke_result_t<Test>>{}> = 0>
+                and type_traits::is_awaitable_v<std::invoke_result_t<Test>> > = 0>
   constexpr auto operator=(Test _test) ->
       typename type_traits::identity<decltype(_test())>::type {
     return on<Test>(events::test<Test>{.type = type,
